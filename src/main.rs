@@ -9,6 +9,21 @@ use std::time::Duration;
 // let's set up the sequence of steps we want the browser to take
 #[tokio::main]
 async fn main() -> Result<(), fantoccini::error::CmdError> {
+    let mut c = Client::new("http://localhost:4444").await.expect("failed to connect to WebDriver");
+
+    sign_in(&mut c).await?;
+
+    // Liking test
+    let url = "https://www.youtube.com/watch?v=DLzxrzFCyOs";
+    like_video(&url, &mut c).await?;
+    
+    delay_for(Duration::from_millis(5000)).await;
+
+
+    c.close().await
+}
+
+async fn sign_in(c: &mut fantoccini::Client) -> Result<(), fantoccini::error::CmdError> {
     dotenv().ok();
 
     let email: String = match env::var("YOUTUBE_EMAIL") {
@@ -21,8 +36,6 @@ async fn main() -> Result<(), fantoccini::error::CmdError> {
         Err(e) => panic!("error parsing YOUTUBE_PASSWORD: {}", e),
     };
 
-
-    let mut c = Client::new("http://localhost:4444").await.expect("failed to connect to WebDriver");
 
     // first, go to youtube login page
     c.goto("https://accounts.google.com/signin/v2/identifier?service=youtube").await?;
@@ -45,9 +58,22 @@ async fn main() -> Result<(), fantoccini::error::CmdError> {
     let element = c.find(Locator::Id("passwordNext")).await?;
     element.click().await?;
 
+    Ok(())
+}
 
-    delay_for(Duration::from_millis(5000)).await;
+async fn like_video(url: &str, c: &mut fantoccini::Client) -> Result<(), fantoccini::error::CmdError> {
+    c.goto(url).await?;
 
+    let mut element = c.wait_for_find(Locator::XPath(r#"//button[contains(@aria-label, 'like this video')]"#)).await?;
+    let result = element.attr("aria-pressed").await?;
 
-    c.close().await
+    match result {
+        Some(str) if str == "false" => {
+            element.click().await?;
+            println!("Liked!");   
+        },
+        _ => println!("Moving on"),
+    }
+
+    Ok(())
 }
