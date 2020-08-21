@@ -1,5 +1,5 @@
 [package]
-name = "like_pipe"
+name = "newpipe-engager"
 version = "0.1.0"
 authors = ["Praxis <hello@vulpinecat.com>"]
 edition = "2018"
@@ -12,3 +12,4 @@ tokio = { version = "0.2.22", features = ["full"] }
 dotenv = "0.15.0"
 rusqlite = "0.23.1"
 anyhow = "1.0"
+indicatif = "0.15.0"

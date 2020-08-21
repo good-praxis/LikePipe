@@ -2,6 +2,8 @@ use fantoccini::{Client, Locator};
 use rusqlite::{params, Connection};
 use std::env;
 use anyhow::{Result, anyhow};
+use indicatif::{ProgressBar, ProgressStyle, HumanDuration};
+use std::time::Instant;
 
 //TODO: Remove, testing purposes only
 use tokio::time::delay_for; 
@@ -19,6 +21,7 @@ struct Video {
 
 #[tokio::main]
 async fn main() -> Result<(), anyhow::Error> {
+    let started = Instant::now();
     let mut c = Client::new("http://localhost:4444").await.expect("failed to connect to WebDriver");
 
     let conn = Connection::open("./newpipe.db")?; 
@@ -42,17 +45,26 @@ async fn main() -> Result<(), anyhow::Error> {
         })
     })?;
 
+    let bar = ProgressBar::new(total_count as u64);
+    bar.set_style(
+        ProgressStyle::default_bar()
+            .template(&format!("{{wide_bar}}▏ {{pos}}/{{len}} {} ▏{{msg}}", HumanDuration(started.elapsed())))
+        );
+
     sign_in(&mut c).await?;
 
-    for video in video_iter.enumerate() {
-        let (index, video) = video;
+
+    for video in video_iter {
         let video = video.unwrap();
         match like_video(&video.url, &mut c).await {
-            Ok(()) => println!("Step {}/{}, liked {} by {}", index+1, total_count, video.title, video.uploader),
-            Err(_e) =>  println!("Step {}/{}, skipping {} by {}", index+1, total_count, video.title, video.uploader),
+            Ok(()) => bar.set_message(&*format!("liked {} by {}", video.title, video.uploader)),
+            Err(_e) =>  bar.set_message(&*format!("skipped {} by {}", video.title, video.uploader)),
 
         }
+        bar.inc(1);
     }
+    
+    bar.finish_with_message("All done!");
 
     delay_for(Duration::from_millis(5000)).await;
 
