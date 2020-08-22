@@ -1,5 +1,4 @@
 use fantoccini::{Client, Locator};
-use rusqlite::{params, Connection};
 use std::env;
 use anyhow::{Result, anyhow};
 use indicatif::{ProgressBar, ProgressStyle, HumanDuration};
@@ -18,34 +17,59 @@ struct Video {
     uploader: String
 }
 
+mod newpipe_db {
+    use rusqlite::{params, Connection};
+
+    #[derive(Debug)]
+    pub struct Video {
+        id: i32,
+        pub url: String,
+        pub title: String,
+        pub uploader: String
+    }
+
+    #[derive(Debug)]
+    pub struct NewpipeDB {
+        pub res: Vec<Video>,
+
+    }
+
+    pub async fn new_newpipe_db() -> Result<NewpipeDB, anyhow::Error> {
+        let conn = Connection::open("./newpipe.db")?;
+        let mut stmt = conn.prepare(
+            "
+            SELECT stream_id, streams.url, streams.title, streams.uploader 
+            FROM stream_history 
+            LEFT JOIN streams ON streams.uid=stream_history.stream_id 
+            ORDER BY access_date DESC
+            "
+        )?;
+
+        let res = stmt.query_map(params![], |row| {
+            Ok(Video {
+                id: row.get(0)?,
+                url: row.get(1)?,
+                title: row.get(2)?,
+                uploader: row.get(3)?,
+            })
+        })?.map(|r| r.unwrap()).collect::<Vec<Video>>();
+
+        let db = NewpipeDB {
+            res: res,
+        };
+
+        Ok(db)
+    }
+}
 
 #[tokio::main]
 async fn main() -> Result<(), anyhow::Error> {
     let started = Instant::now();
     let mut c = Client::new("http://localhost:4444").await.expect("failed to connect to WebDriver");
 
-    let conn = Connection::open("./newpipe.db")?; 
-    let mut stmt = conn.prepare(
-        "
-        SELECT stream_id, streams.url, streams.title, streams.uploader 
-        FROM stream_history 
-        LEFT JOIN streams ON streams.uid=stream_history.stream_id 
-        ORDER BY access_date DESC
-        "
-    )?;
-    let total_count = stmt.query_map(params![], |_row| {
-        Ok(())
-    })?.count();
-    let video_iter = stmt.query_map(params![], |row| {
-        Ok(Video {
-            id: row.get(0)?,
-            url: row.get(1)?,
-            title: row.get(2)?,
-            uploader: row.get(3)?,
-        })
-    })?;
+    let newpipe_db = newpipe_db::new_newpipe_db().await?;
 
-    let bar = ProgressBar::new(total_count as u64);
+    let bar = ProgressBar::new(newpipe_db.res.len() as u64);
     bar.set_style(
         ProgressStyle::default_bar()
             .template(&format!("{{wide_bar}}▏ {{pos}}/{{len}} {} ▏{{msg}}", HumanDuration(started.elapsed())))
@@ -54,8 +78,8 @@ async fn main() -> Result<(), anyhow::Error> {
     sign_in(&mut c).await?;
 
 
-    for video in video_iter {
-        let video = video.unwrap();
+    for video in newpipe_db.res {
+        let video = video;
         match like_video(&video.url, &mut c).await {
             Ok(()) => bar.set_message(&*format!("liked {} by {}", video.title, video.uploader)),
             Err(_e) =>  bar.set_message(&*format!("skipped {} by {}", video.title, video.uploader)),
@@ -86,13 +110,9 @@ async fn sign_in(c: &mut fantoccini::Client) -> Result<(), anyhow::Error> {
     };
 
 
-    // first, go to youtube login page
     c.goto("https://accounts.google.com/signin/v2/identifier?service=youtube").await?;
 
-    // access the identifier field
     let mut email_field = c.find(Locator::Id("identifierId")).await?;
-
-    // enter email into field
     email_field.send_keys(&email).await?;
 
     let element = c.find(Locator::Id("identifierNext")).await?;
@@ -101,7 +121,6 @@ async fn sign_in(c: &mut fantoccini::Client) -> Result<(), anyhow::Error> {
     delay_for(Duration::from_millis(500)).await;
 
     let mut password_field = c.find(Locator::XPath(r#"//input[@name="password"]"#)).await?;
-
     password_field.send_keys(&password).await?;
 
     let element = c.find(Locator::Id("passwordNext")).await?;
