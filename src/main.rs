@@ -10,6 +10,8 @@ use std::time::Duration;
 use tokio::time::delay_for;
 
 mod newpipe_db;
+use newpipe_db::NewpipeDB;
+mod skiplist;
 mod video;
 
 #[tokio::main]
@@ -19,7 +21,7 @@ async fn main() -> Result<(), anyhow::Error> {
         .await
         .expect("failed to connect to WebDriver");
 
-    let newpipe_db = newpipe_db::new_newpipe_db().await?;
+    let newpipe_db = NewpipeDB::new()?;
 
     let bar = ProgressBar::new(newpipe_db.res.len() as u64);
     bar.set_style(ProgressStyle::default_bar().template(&format!(
@@ -28,6 +30,7 @@ async fn main() -> Result<(), anyhow::Error> {
     )));
 
     sign_in(&mut c).await?;
+    let mut skiplist = skiplist::Skiplist::load();
 
     for video in newpipe_db.res {
         let video = video;
@@ -35,6 +38,9 @@ async fn main() -> Result<(), anyhow::Error> {
             Ok(()) => bar.set_message(&*format!("liked {} by {}", video.title, video.uploader)),
             Err(_e) => bar.set_message(&*format!("skipped {} by {}", video.title, video.uploader)),
         }
+        skiplist.skiplist.insert(video.url);
+        skiplist.save();
+
         bar.inc(1);
     }
 
