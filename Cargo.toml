@@ -10,6 +10,6 @@ edition = "2018"
 fantoccini = "0.14.0"
 tokio = { version = "0.2.22", features = ["full"] }
 dotenv = "0.15.0"
-rusqlite = "0.23.1"
+rusqlite = "0.24.0"
 anyhow = "1.0"
 indicatif = "0.15.0"
