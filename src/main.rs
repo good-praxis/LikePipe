@@ -1,5 +1,4 @@
-use anyhow::{anyhow, Result};
-use fantoccini::{Client, Locator};
+use anyhow::Result;
 use indicatif::{HumanDuration, ProgressBar, ProgressStyle};
 use std::env;
 use std::time::Instant;
@@ -13,13 +12,15 @@ mod newpipe_db;
 use newpipe_db::NewpipeDB;
 mod skiplist;
 mod video;
+mod webdriver;
 
 #[tokio::main]
 async fn main() -> Result<(), anyhow::Error> {
     let started = Instant::now();
-    let mut c = Client::new("http://localhost:4444")
-        .await
-        .expect("failed to connect to WebDriver");
+
+    let (email, secret) = get_credentials();
+
+    let mut c = webdriver::Client::new(&email, &secret).await?;
 
     let newpipe_db = NewpipeDB::new()?;
 
@@ -29,12 +30,11 @@ async fn main() -> Result<(), anyhow::Error> {
         HumanDuration(started.elapsed())
     )));
 
-    sign_in(&mut c).await?;
     let mut skiplist = skiplist::Skiplist::load();
 
     for video in newpipe_db.res {
         let video = video;
-        match like_video(&video.url, &mut c).await {
+        match c.like_video(&video.url).await {
             Ok(()) => bar.set_message(&*format!("liked {} by {}", video.title, video.uploader)),
             Err(_e) => bar.set_message(&*format!("skipped {} by {}", video.title, video.uploader)),
         }
@@ -51,56 +51,11 @@ async fn main() -> Result<(), anyhow::Error> {
     Ok(c.close().await?)
 }
 
-async fn sign_in(c: &mut fantoccini::Client) -> Result<(), anyhow::Error> {
+fn get_credentials() -> (String, String) {
     dotenv().ok();
 
-    let email: String = match env::var("YOUTUBE_EMAIL") {
-        Ok(val) => val,
-        Err(e) => panic!("error parsing YOUTUBE_EMAIL: {}", e),
-    };
+    let email = env::var("YOUTUBE_EMAIL").expect(".env parameter 'YOUTUBE_EMAIL' not set");
+    let secret = env::var("YOUTUBE_SECRET").expect(".env parameter 'YOUTUBE_SECRET' not set");
 
-    let password: String = match env::var("YOUTUBE_PASSWORD") {
-        Ok(val) => val,
-        Err(e) => panic!("error parsing YOUTUBE_PASSWORD: {}", e),
-    };
-
-    c.goto("https://accounts.google.com/signin/v2/identifier?service=youtube")
-        .await?;
-
-    let mut email_field = c.find(Locator::Id("identifierId")).await?;
-    email_field.send_keys(&email).await?;
-
-    let element = c.find(Locator::Id("identifierNext")).await?;
-    element.click().await?;
-
-    delay_for(Duration::from_millis(500)).await;
-
-    let mut password_field = c
-        .find(Locator::XPath(r#"//input[@name="password"]"#))
-        .await?;
-    password_field.send_keys(&password).await?;
-
-    let element = c.find(Locator::Id("passwordNext")).await?;
-    element.click().await?;
-
-    Ok(())
-}
-
-async fn like_video(url: &str, c: &mut fantoccini::Client) -> Result<(), anyhow::Error> {
-    c.goto(url).await?;
-
-    let mut element = c
-        .wait_for_find(Locator::XPath(
-            r#"//button[contains(@aria-label, 'like this video')]"#,
-        ))
-        .await?;
-    let result = element.attr("aria-pressed").await?;
-
-    match result {
-        Some(str) if str == "false" => {
-            element.click().await?;
-            Ok(())
-        }
-        _ => Err(anyhow!("Already liked")),
-    }
+    (email, secret)
 }
