@@ -1,6 +1,7 @@
 use anyhow::Result;
 use fantoccini::Locator;
 
+use std::process::Command;
 use std::time::Duration;
 use tokio::time::delay_for;
 
@@ -13,6 +14,9 @@ pub struct Client {
 
 impl Client {
     pub async fn new(email: &str, secret: &str) -> Result<Client, error::Error> {
+        Command::new("geckodriver")
+            .spawn()
+            .expect("geckodriver start failed");
         let c = fantoccini::Client::new("http://localhost:4444").await;
         let mut c = match c {
             Ok(c) => Client { c: c },
